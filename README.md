@@ -472,7 +472,7 @@ ANALYZE %I;
 
 ## 总结
 
-使用`explain`分析sql命令的运行时间来优化程序：
+### 使用`explain`分析sql命令的运行时间来优化程序
 
 在`match.py`中完成路径匹配，原本每条路径的运行时间在3s左右，通过分析`get_closest_points`函数发现，从gps_log_valid_xx表中按id查找记录的时间很慢，于是在gps_log_valid_xx表上针对id建立索引，使得每条路径的运行时间降低到1s左右。
 
@@ -564,4 +564,8 @@ WHERE
 
 
 
+### 多进程编程
 
+### pgrouting
+
+### pl/pgsql
