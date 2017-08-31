@@ -439,7 +439,7 @@ ANALYZE %I;
 1. 深圳路网数据入库
 2. 深圳路网节点数据入库
 3. 运行`pick_virtual_pnt.py`脚本，完成虚拟红灯节点的选取
-4. 运行`calculate_distance.sql`，预算，直线距离在5km内的路网节点之间的路网距离。
+4. 运行`calculate_distance.sql`，预算直线距离在5km内的路网节点之间的路网距离。
 
 ### 步骤
 
@@ -469,3 +469,99 @@ ANALYZE %I;
 18. 修改`validate_result_shortest.py`的配置信息，运行脚本，完成验证。
 
 可以替换15和18中的脚本为其它对应版本，完成其它实验。
+
+## 总结
+
+使用`explain`分析sql命令的运行时间来优化程序：
+
+在`match.py`中完成路径匹配，原本每条路径的运行时间在3s左右，通过分析`get_closest_points`函数发现，从gps_log_valid_xx表中按id查找记录的时间很慢，于是在gps_log_valid_xx表上针对id建立索引，使得每条路径的运行时间降低到1s左右。
+
+```sql
+   with closest_points as
+        (
+        select
+            gps.geom as geom_log,
+            r.geom as geom_line,
+            gps.id as log_id,
+            r.gid as line_id,
+            r.startnode as source,
+            r.endnode as target,
+            r.length as length,
+            r.trafficflo as flo,
+            ST_ClosestPoint(r.geom, gps.geom) as geom_closest,
+            gps.velocity as v,
+            gps.log_time as log_time,
+            ST_X(ST_EndPoint(r.geom))-ST_X(ST_StartPoint(r.geom)) as line_x,
+	        ST_Y(ST_EndPoint(r.geom))-ST_Y(ST_StartPoint(r.geom)) as line_y
+        from
+            {} r, {} gps
+        where
+            gps.id in %s and
+            ST_DWithin(gps.geom, r.geom,  50)
+        )
+        select
+            ST_X(geom_log) AS log_x,
+            ST_Y(geom_log) AS log_y,
+            ST_X(geom_closest) AS p_x,
+            ST_Y(geom_closest) AS p_y,
+            line_id,
+            log_id,
+            source,
+            target,
+            length,
+            flo,
+            ST_LineLocatePoint(geom_line, geom_log) as fraction,
+            v,
+            log_time,
+            line_x,
+            line_y
+        from
+            closest_points
+        order by
+            log_time, st_distance(geom_closest, geom_log)
+```
+
+由于get_closest_points是一个复杂的sql查询，直觉认为它的运行瓶颈是在空间查询部分，所以只建立了空间索引，但是通过explain命令分析后，发现瓶颈在于，要在巨大的数据表中选出和路径上的id匹配的记录。
+
+`make_gps_log_valid`
+
+```sql
+1.
+CREATE TABLE
+	gps_log_valid AS
+SELECT DISTINCT ON (gp.id) gp.*
+FROM
+	gps_log gp, shenzhen_line1 r
+WHERE
+	gp.log_time::time between '07:30:00' AND '08:30:00' AND
+	gp.velocity >= 0 AND
+	gp.direction >= 0 AND
+	gp.is_valid is true AND
+	gp.on_service is true AND
+	ST_DWithin(r.geom, gp.geom, 30);
+
+```
+
+
+```sql
+2.
+
+CREATE TABLE
+	gps_log_valid AS
+SELECT DISTINCT ON (gp.id) gp.*
+FROM
+	gps_log gp, line_buffer r
+WHERE
+	gp.log_time::time between '07:30:00' AND '08:30:00' AND
+	gp.velocity >= 0 AND
+	gp.direction >= 0 AND
+	gp.is_valid is true AND
+	gp.on_service is true AND
+	ST_Contain(r.geom, gp.geom);
+```
+
+建立有效gps_log表时，需要选择落在路网30米缓冲区中的gps_log。此时可以有上图1和2两种选择。通过explain分析两种方法的运行时间差接近，但是2.需要额外建立一个缓冲区，步骤麻烦而且占用存储空间，所以使用1.
+
+
+
+
