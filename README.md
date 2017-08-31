@@ -429,3 +429,43 @@ CREATE INDEX %I ON %I(start_node, end_node);
 CLUSTER %I USING %I;
 ANALYZE %I;
 ```
+
+## 工作流
+
+
+
+### 数据准备
+
+1. 深圳路网数据入库
+2. 深圳路网节点数据入库
+3. 运行`pick_virtual_pnt.py`脚本，完成虚拟红灯节点的选取
+4. 运行`calculate_distance.sql`，预算，直线距离在5km内的路网节点之间的路网距离。
+
+### 步骤
+
+1. 运行`make_gps_log_table.sql`中的`make_gps_log_table`建立数据表gps_log_xx。
+2. 修改`dump_rar_to_db.py`配置信息中的`gps_log_table_name`，运行脚本，将数据导入数据库。
+3. 运行`make_gps_log_valid_table.sql`中的`make_gps_log_valid_table`建立数据表gps_log_valid_xx，然后运行`make_gps_log_valid_idx`对数据表建立索引。(在数据库中完成数据清洗)
+4. 运行`make_track_table.sql`中的`make_tracks_table`建立数据表tracks，然后运行`make_tracks_table_idx`对数据表建立索引。(在数据库中完成轨迹建立)
+5. 运行`make_match_track_table.sql`中的`make_match_track_table`建立数据表match_track_xx。
+6. 修改`match.py`的配置信息，运行脚本，完成路径匹配。
+7. 运行`make_match_track_table.sql`中的`make_match_track_idx`对数据表match_track_xx建立索引。
+8. 运行`make_construct_track_table.sql`中的`make_construct_tracks_table`函数建立数据表construct_tracks_xx
+9. 修改`construct_track_true.py`的配置信息，运行脚本，将7匹配好的轨迹，还原为连通的路径。
+10. 运行`make_construct_track_table.sql`中的`make_construct_tracks_table_idx`对数据表construct_tracks_xx建立索引。
+11. 运行`make_red_point_track_table.sql`中的`make_red_point_track_table`函数，建立数据表red_point_track_xx。
+12. 修改`get_red_point_track.py`中的配置信息，运行脚本，获得9中连通路径上的红灯路径段。
+13. 运行`make_red_point_track_table.sql`中的`make_red_point_track_idx`函数，对数据表red_point_track_xx建立索引。
+
+对于6月份8点的数据和7月份8点的数据运行步骤1-13后，得到各自的数据表。
+
+14. 运行`make_new_track_time_table.sql`中的`make_new_track_time_table`建立数据表new_track_time_xx
+15. 修改`calculate_time_two_month.py`中的配置信息，运行脚本，计算新路径的通过时间。
+16. 运行`make_new_network_table.sql`中的`make_new_network_table`建立新网络表。
+17. 修改`build_new_routing_network.py`中的配置信息，运行脚本，填充16的新网络表。
+
+对于5月份8点的数据和8月份8点的数据各自运行步骤1-13后，得到各自的数据表。
+
+18. 修改`validate_result_shortest.py`的配置信息，运行脚本，完成验证。
+
+可以替换15和18中的脚本为其它对应版本，完成其它实验。
