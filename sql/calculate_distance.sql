@@ -6,7 +6,7 @@ CREATE EXTENSION dblink;
 -- 计算所有到begin_vid直线距离小于5000m的顶点和begin_vid之间的dijkstra距离
 
 -- 这样设计函数的原因是：
--- 1, prg_dijkstraCost函数的 many to many 接口,处理begin_vids和end_vids之间的两两组合而不是一一对应。所以没有办法对所有begin_vid进行计算。
+-- 1, prg_dijkstraCost函数的 many to many 接口,处理begin_vids和end_vids之间的两两组合而不是一一对应，无法选择5km内的点对，所以没有办法对所有begin_vid进行计算。
 -- 2, 对于每个begin_vid调用一次pgr_dijkstarCost函数，会在内存中重复加载路网数据，对性能有影响。 
 CREATE OR REPLACE FUNCTION get_pair_distance (begin_vid INTEGER)
 RETURNS TABLE (

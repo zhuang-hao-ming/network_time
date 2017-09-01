@@ -566,6 +566,160 @@ WHERE
 
 ### 多进程编程
 
+我认为存在3种不同的多进程编程模式。
+
+1. 将任务分成多个小任务，将小任务全部交给进程池，由进程池完成任务的运行。
+
+2. 将任务分成多个小任务，将小任务分组，组的数目和cpu内核数目相同，建立和cpu内核数目相同的进程，将每组任务交由一个进程来运行。
+
+3. 将任务分成多个小任务，将小任务分组，组的数目和cpu内核数目相同，将所有组任务交由进程池执行。
+
+每种方法是否有不同？
+
+
 ### pgrouting
+
+使用流程备忘：
+
+1. 将路网数据入库，或者将模型结果入库。对于建立的数据表没有具体的要求，但是要求可以查询到道路的起点id，终点id，通路正向的权重，道路逆向的权重（可选）。
+2. 使用代码1或者代码2来进行最短路径查询。
+
+```sql
+1.
+
+ SELECT * FROM pgr_dijkstra('
+		    SELECT
+				 id,
+				 start_node as source,
+				 end_node as target,
+				 avg_time AS cost,
+				 reverse_length AS reverse_cost
+			FROM
+				new_network_xx',
+		    %s,
+		    %s,
+		    directed := true) order by seq;
+```
+
+```sql
+2. 
+SELECT * FROM pgr_dijkstraCost('
+		    SELECT
+				 id,
+				 start_node as source,
+				 end_node as target,
+				 avg_time AS cost,
+				 reverse_length AS reverse_cost
+			FROM
+				new_network_xx',
+		    %s,
+		    %s,
+		    directed := true) order by seq;
+```
+
+计算直线距离小于5km的路网点对之间的网络距离：
+
+```sql
+3.
+-- @param begin_vid {{integer}} 顶点id
+-- 计算所有到begin_vid直线距离小于5000m的顶点和begin_vid之间的dijkstra距离
+
+-- 这样设计函数的原因是：
+-- 1, prg_dijkstraCost函数的 many to many 接口,处理begin_vids和end_vids之间的两两组合而不是一一对应，无法选择5km内的点对，所以没有办法对所有begin_vid进行计算。
+-- 2, 对于每个begin_vid调用一次pgr_dijkstarCost函数，会在内存中重复加载路网数据，对性能有影响。 
+CREATE OR REPLACE FUNCTION get_pair_distance (begin_vid INTEGER)
+RETURNS TABLE (
+	start_vid BIGINT,
+	end_vid BIGINT,
+	agg_dis float
+)
+AS 
+$$
+BEGIN
+RETURN QUERY SELECT * FROM pgr_dijkstraCost('
+		    SELECT 
+				 gid  AS id,
+				 startnode as source,
+				 endnode as target,
+				 length AS cost,
+				 reverse_cost
+			FROM
+				shenzhen_line1 ORDER BY gid',
+		    begin_vid,
+		    (SELECT array_agg(b.id) FROM shenzhen_point1 a, shenzhen_point1 b WHERE ST_DWithin(a.geom, b.geom, 5000) AND a.id = begin_vid),
+		    directed := true);
+END;
+$$
+LANGUAGE 'plpgsql';
+
+
+4.
+CREATE OR REPLACE FUNCTION calculate_all_dis1()
+RETURNS VOID 
+AS
+$$
+DECLARE
+	i INTEGER := 0;
+	v_id INTEGER;
+BEGIN
+	FOR v_id IN SELECT id FROM shenzhen_point1 ORDER BY id LOOP
+		RAISE NOTICE 'counter %, id %', i, v_id;
+		i := i+1;
+		INSERT INTO path_cost SELECT * FROM get_pair_distance(v_id);
+	END LOOP;
+
+END;
+$$
+LANGUAGE 'plpgsql';
+
+```
+
+按照代码3，4设计函数来计算路网距离，可能存在一个问题。对于`calculate_all_dis1`的函数调用处在一个`transaction`中，导致大量的中间数据滞留在内存中，导致内存溢出，为了解决这个问题，设计了如下策略：
+
+```sql
+
+5.
+
+-- 安装dblink
+CREATE EXTENSION dblink;
+-- 计算路网上任何两个直线距离小于5000米的顶点之间的dijkstra距离
+-- 使用db_link模拟autonomous transaction来避免在一个事务的内存中保留过多的记录以致于内存耗尽
+-- 使用db_link对性能大概有2倍影响，估计是建立连接花费了过多的时间
+
+CREATE OR REPLACE FUNCTION calculate_all_dis(n INTEGER DEFAULT 16697)
+RETURNS VOID 
+AS
+$$
+DECLARE
+	i INTEGER := 0;
+	
+BEGIN
+	WHILE i <= n LOOP
+ 		i := i+1;
+ 		RAISE NOTICE 'Counter: %', i;	
+ 		PERFORM dblink_connect('dblink_trans','dbname=road_gps port=5432 user=postgres password=123456');
+ 		PERFORM dblink('dblink_trans','INSERT INTO path_cost SELECT * FROM get_pair_distance(' || i || ');');
+ 		PERFORM dblink('dblink_trans','COMMIT;');
+ 		PERFORM dblink_disconnect('dblink_trans'); 
+						
+		--i := i+1;
+		--RAISE NOTICE 'Counter: %', i;					
+		--INSERT INTO path_cost SELECT * FROM get_pair_distance(i);
+		
+		
+	END LOOP;
+END;
+$$
+LANGUAGE 'plpgsql';
+
+```
+
+代码5使用`dblink`在函数中hack事务提交。
+
+
+### postgis
+
+
+
 
 ### pl/pgsql

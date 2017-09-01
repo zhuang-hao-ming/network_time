@@ -134,7 +134,7 @@ def get_tracks(table_name='tracks_6'):
 
 #
 # 得到一条轨迹的gps_log的在道路上的最近点
-# 1. 只考虑距离gps_log距离小于30米的道路
+# 1. 只考虑距离gps_log距离小于50米的道路
 # 2. 返回的最近点先按照gps_log_id排序然后按照距离从小到大排序（在数据库中不好限制只返回5条最近点，所以全部返回，在客户端中来限制）
 # @param {{tuple}} log_ids a list of valid gps_log_id
 # @return {{list of record}}
